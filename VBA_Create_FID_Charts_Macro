@@ -1,0 +1,149 @@
+Sub CreateStackedColumnCharts()
+    Dim ws As Worksheet
+    Dim wsNew As Worksheet
+    Dim chartObj As ChartObject
+    Dim tmsDict As Object
+    Dim serviceDict As Object
+    Dim tms As Variant
+    Dim service As Variant
+    Dim i As Integer
+    Dim chartTitle As String
+    Dim lastRow As Long
+    Dim tmsDatesDict As Object
+    Dim uniqueDates As Object
+    Dim dateKey As Variant
+    Dim xValues As Variant
+    Dim seriesValues As Variant
+    Dim dateIndex As Integer
+    Dim series As Series
+    Dim dataLabel As DataLabel
+
+    ' Disable screen updating to improve performance
+    Application.ScreenUpdating = False
+
+    Set tmsDict = CreateObject("Scripting.Dictionary")
+    Set serviceDict = CreateObject("Scripting.Dictionary")
+    Set tmsDatesDict = CreateObject("Scripting.Dictionary")
+    
+    ' Initialize the serviceColors dictionary
+    Dim serviceColors As Object
+    Set serviceColors = CreateObject("Scripting.Dictionary")
+    
+    ' Define specific colors for each Service
+    serviceColors.Add "USN", RGB(100, 149, 237)        ' Updated Cornflower Blue
+    serviceColors.Add "USMC", RGB(80, 200, 120)        ' Updated Emerald Green
+    serviceColors.Add "USN Res", RGB(204, 204, 255)    ' Updated Perwinkle
+    serviceColors.Add "USMC Res", RGB(175, 225, 175)   ' Updated Light-Green
+    serviceColors.Add "CNATRA", RGB(255, 165, 0)       ' Orange
+    serviceColors.Add "NAVAIR", RGB(228, 208, 10)      ' Updated Yellow
+    serviceColors.Add "Misc", RGB(159, 226, 191)       ' Updated Seafoam
+    
+    ' Loop through the "Daily" sheet to get unique TMS, Service values, and dates
+    Set ws = ThisWorkbook.Sheets("Daily")
+    lastRow = ws.Cells(ws.Rows.Count, "B").End(xlUp).Row
+
+    For i = 2 To lastRow
+        tms = ws.Cells(i, 2).Value
+        service = ws.Cells(i, 33).Value
+        
+        If Not tmsDict.exists(tms) Then
+            tmsDict.Add tms, tms
+            Set uniqueDates = CreateObject("Scripting.Dictionary")
+            tmsDatesDict.Add tms, uniqueDates
+        End If
+        
+        If Not serviceDict.exists(service) Then
+            serviceDict.Add service, service
+        End If
+        
+        If Not tmsDatesDict(tms).exists(ws.Cells(i, 21).Value) Then
+            tmsDatesDict(tms).Add ws.Cells(i, 21).Value, ws.Cells(i, 21).Value
+        End If
+    Next i
+    
+    ' Create a new sheet for each TMS and add the stacked column chart
+    For Each tms In tmsDict.Keys
+        Set wsNew = ThisWorkbook.Sheets.Add(After:=ThisWorkbook.Sheets(ThisWorkbook.Sheets.Count))
+        wsNew.Name = tms
+        
+        ' Set the chart title
+        chartTitle = tms & " induction date projection"
+        
+        ' Prepare X-axis values (unique dates) for the chart
+        dateIndex = 1
+        ReDim xValues(1 To tmsDatesDict(tms).Count)
+        For Each dateKey In tmsDatesDict(tms)
+            xValues(dateIndex) = dateKey
+            dateIndex = dateIndex + 1
+        Next dateKey
+        
+        ' Sort the xValues array (dates) for proper chart display
+        xValues = SortArray(xValues)
+        
+        ' Add the chart
+        Set chartObj = wsNew.ChartObjects.Add(Left:=50, Width:=500, Top:=50, Height:=300)
+        With chartObj.Chart
+            .ChartType = xlColumnStacked
+            .HasTitle = True
+            .ChartTitle.Text = chartTitle
+            .Axes(xlCategory).CategoryNames = xValues
+            .Axes(xlValue).MajorGridlines.Delete
+            
+            ' Add series for each Service with distinct colors
+            For Each service In serviceDict.Keys
+                ' Calculate the series values for the current service
+                ReDim seriesValues(1 To UBound(xValues))
+                For dateIndex = LBound(xValues) To UBound(xValues)
+                    seriesValues(dateIndex) = Application.WorksheetFunction.CountIfs(ws.Columns("B"), tms, ws.Columns("AG"), service, ws.Columns("U"), xValues(dateIndex))
+                Next dateIndex
+                
+                ' Add the series to the chart
+                With .SeriesCollection.NewSeries
+                    .Name = service
+                    .Values = seriesValues
+                    .XValues = xValues
+                    .ChartType = xlColumnStacked
+                    .Format.Fill.ForeColor.RGB = serviceColors(service)
+                    .ApplyDataLabels ' Add data labels
+                    
+                    ' Suppress data labels for zero values
+                    For Each dataLabel In .DataLabels
+                        If dataLabel.Text = "0" Then
+                            dataLabel.Delete
+                        End If
+                    Next dataLabel
+                End With
+            Next service
+            
+            ' Set the X and Y axes
+            .Axes(xlCategory).HasTitle = False
+            .Axes(xlCategory).TickLabels.NumberFormat = "mmm yyyy" ' Format X-axis labels
+            .Axes(xlValue).HasTitle = True
+            .Axes(xlValue).AxisTitle.Text = "Count of BUNO"
+        End With
+    Next tms
+
+    ' Save the workbook with the specified name
+    ThisWorkbook.SaveAs Filename:=ThisWorkbook.Path & "\TMS_FID_Projection_AIRRS.xlsx"
+
+    ' Re-enable screen updating
+    Application.ScreenUpdating = True
+End Sub
+
+' Function to sort an array of dates
+Function SortArray(arr As Variant) As Variant
+    Dim i As Integer, j As Integer
+    Dim temp As Variant
+
+    For i = LBound(arr) To UBound(arr) - 1
+        For j = i + 1 To UBound(arr)
+            If arr(i) > arr(j) Then
+                temp = arr(i)
+                arr(i) = arr(j)
+                arr(j) = temp
+            End If
+        Next j
+    Next i
+
+    SortArray = arr
+End Function
